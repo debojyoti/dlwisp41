@@ -31,8 +31,8 @@ void init_sensor()
 {
   return;
 }
-
-void read_sensor(unsigned char volatile *target) 
+//void read_sensor(unsigned char volatile *target) 
+/*void read_sensor()
 {
      
        // slow down clock
@@ -46,19 +46,65 @@ void read_sensor(unsigned char volatile *target)
         
         unsigned int k = 0;
         
-#define USE_SENSOR_COUNTER      1
+#define USE_SENSOR_COUNTER      0
 #if USE_SENSOR_COUNTER
-        *(target + k + 1 ) = __swap_bytes(sensor_counter);
-        *(target + k) = sensor_counter;
+        *(&ackReply[3] + k + 1 ) = __swap_bytes(sensor_counter);
+        *(&ackReply[3] + k) = sensor_counter;
         if ( sensor_counter == 0xffff ) sensor_counter = 0; else sensor_counter++;
 #else
-        *(target + k + 1 ) = 0x03;
+        *(&ackReply[3] + k + 1 ) = 0x03;
         // grab msb bits and store it
-        *(target + k) = 0x02;
+        *(&ackReply[3] + k) = 0x02;
 #endif
         
         return;
+}*/
+void read_sensor_1() 
+{
+     
+       // slow down clock
+        BCSCTL1 = XT2OFF + RSEL1; // select internal resistor (still has effect when DCOR=1)
+        DCOCTL = DCO1+DCO0; // set DCO step. 
+            
+        //if(!is_power_good())
+          //sleep();
+  
+        P1OUT &= ~RX_EN_PIN;   // turn off comparator
+        
+        unsigned int k = 0;
+        
+
+        //*(&ackReply[3] + k + 1 ) = __swap_bytes(sensor_counter);
+        //*(&ackReply[3] + k) = sensor_counter;
+        *((PointackReply+3) +k + 1) = __swap_bytes(sensor_counter);
+        *((PointackReply+3) + k) = sensor_counter;
+        if ( sensor_counter == 0xffff ) sensor_counter = 0; else sensor_counter++;
+        
+        return;
 }
+/*void read_sensor_2() 
+{
+     
+       // slow down clock
+        BCSCTL1 = XT2OFF + RSEL1; // select internal resistor (still has effect when DCOR=1)
+        DCOCTL = DCO1+DCO0; // set DCO step. 
+            
+        //if(!is_power_good())
+          //sleep();
+  
+        P1OUT &= ~RX_EN_PIN;   // turn off comparator
+        
+        unsigned int k = 0;
+        
+        
+        *((PointackReply+3) +k + 1) = 0x03;
+        // grab msb bits and store it
+      
+        *((PointackReply+3) + k) = 0x02;
+
+        
+        return;
+}*/
 
 // used to sleep while taking adc, this wakes us
 #pragma vector=ADC10_VECTOR

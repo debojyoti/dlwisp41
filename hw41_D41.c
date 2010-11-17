@@ -68,9 +68,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ////////////////////////////////////////////////////////////////////////////////
 // Step 1: pick an application
 // simple hardcoded query-ack
-#define SIMPLE_QUERY_ACK              1
+#define SIMPLE_QUERY_ACK              0
 // return sampled sensor data as epc. best for range.
-#define SENSOR_DATA_IN_ID             0
+#define SENSOR_DATA_IN_ID             1
 // support read commands. returns one word of counter data
 #define SIMPLE_READ_COMMAND           0
 // return sampled sensor data in a read command. returns three words of accel data
@@ -98,7 +98,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define SENSOR_COMM_STATS             5
 
 // Choose Active Sensor:
-#define ACTIVE_SENSOR                 SENSOR_ACCEL_QUICK
+#define ACTIVE_SENSOR                 SENSOR_NULL
 ////////////////////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -217,6 +217,13 @@ volatile unsigned char queryReply[]= { 0x00, 0x03, 0x00, 0x00};
 
 // ackReply:  First two bytes are the preamble.  Last two bytes are the crc.
 volatile unsigned char ackReply[]  = { 0x30, 0x00, EPC, 0x00, 0x00};
+//---debojyoti---//
+#define _PointackReply 0x5024; //used to point ackReply. fixed address. 
+volatile static unsigned char* PointackReply = (unsigned char*)_PointackReply;
+//therefore akReply can always be accessed from other function using absolute address
+//--debojyoti---//
+
+
 
 // first 8 bits are the EPCGlobal identifier, followed by a 12-bit tag designer identifer (made up), followed by a 12-bit model number
 volatile unsigned char tid[] = { 0xE2, TID_DESIGNER_ID_AND_MODEL_NUMBER };
@@ -251,6 +258,7 @@ unsigned short TRcal=0;
 #define STATE_SECURED             5
 #define STATE_KILLED              6
 #define STATE_READ_SENSOR         7
+#define STATE_UPDATE              8 //debojyoti--for updating firmware
 
 // the bit count will be different from the spec, because we don't adjust it for
 // processing frame-syncs/rtcal/trcals. however, the cmd buffer will contain pure packet
@@ -353,7 +361,41 @@ static inline void do_nothing();
 	#error "SENSOR_COMM_STATS not yet implemented"
   #endif
 #endif
+#define CODE_TOGGLE 1
+#if CODE_TOGGLE
+#define WORD 2
+#define BYTE 1
+#define REPEAT 40
+void erase_segment(unsigned int *segment_address);
+int WriteWord(unsigned int *segment_address, unsigned int value);
 
+#define _FIRMWARE_SWITCH_ADDRESS 0x10BE
+static unsigned int* FIRMWARE_SWITCH =
+    (unsigned int*)_FIRMWARE_SWITCH_ADDRESS;
+
+extern void read_sensor_1(); 
+//extern void read_sensor_2();
+/*unsigned char read_sensor_2 [] = { 0x0A,0x12,0x0A,0x4C,0xF2,0x40,0x82,0x00,0x57,0x00,0xF2,0x40,0x60,0x00,0x56,0x00,0xB0,0x12,0x0C,0x93,0x02,0x20,
+                                  0xB0,0x12,0xEC,0xE9,0xF2,0xC2,0x21,0x00,0x0F,0x43,0x0E,0x4A,0x0E,0x5F,0xFE,0x40,0x03,0x00,0x01,0x00,0x0A,0x5F,
+                                  0xEA,0x43,0x00,0x00,0x3A,0x41,0x30,0x41 };*/
+/*unsigned char read_sensor_2 [] = { 0x0A,0x12,0x0A,0x4C,0xF2,0x40,0x82,0x00,0x57,0x00,0xF2,0x40,0x60,0x00,0x56,0x00,
+                                  0xF2,0xC2,0x21,0x00,0x0F,0x43,0x0E,0x4A,0x0E,0x5F,0xFE,0x40,0x03,0x00,0x01,0x00,0x0A,0x5F,
+                                  0xEA,0x43,0x00,0x00,0x3A,0x41,0x30,0x41 };*/
+//unsigned char read_sensor_2 [] = {0xF2,0x40,0x82,0x00,0x57,0x00,0xF2,0x40,0x60,0x00,0x56,0x00,0xF2,0xC2,0x21,0x00,0x0F,0x43,0xFF,0x40,0x03,0x00,
+  //                                0x12,0x02,0xEF,0x43,0x11,0x02,0x30,0x41};
+unsigned char read_sensor_2 [] =  {0xF2,0x40,0x82,0x00,0x57,0x00,0xF2,0x40,0x60,0x00,0x56,0x00,0xF2,0xC2,0x21,0x00,0x0F,0x43, 
+                                  0x1E,0x42,0x06,0x02,0x0E,0x5F,0xFE,0x40,0x03,0x00,0x04,0x00,0x1E,0x42,0x06,0x02,
+                                   0x0E,0x5F,0xEE,0x43,0x03,0x00,0x30,0x41};                         
+//typedef void (*mainfn)(unsigned char volatile*);
+typedef void (*mainfn)();
+mainfn mainfns[2] = {
+  &read_sensor_1
+  //&read_sensor_2
+};
+int WhichApp=20;
+mainfn fn;
+int toggle_counter;
+#endif
 int main(void)
 {
   //**********************************Timer setup**********************************
@@ -367,6 +409,30 @@ int main(void)
   P2IFG = 0;
 
   DRIVE_ALL_PINS // set pin directions correctly and outputs to low.
+    
+    //--debojyoti--//
+#if CODE_TOGGLE
+    PointackReply = &ackReply[0];
+    for (i = 0; i < 1; ++i)
+      if ((mainfns[i] == (mainfn)(*FIRMWARE_SWITCH))){
+        if(i==0)
+          WhichApp=1;
+        else
+          WhichApp=2;
+      }
+  
+		
+  if(WhichApp == 20)
+  {
+    erase_segment(FIRMWARE_SWITCH);
+    WriteWord(FIRMWARE_SWITCH,(unsigned int)&read_sensor_1);
+    WhichApp = 1;
+  }
+  // fn = (void(*)()) (*FIRMWARE_SWITCH);
+  fn =(mainfn)(*FIRMWARE_SWITCH);
+#endif
+  
+  //---debojyoti---//
   
   // Check power on bootup, decide to receive or sleep.
   if(!is_power_good())
@@ -472,6 +538,25 @@ int main(void)
       if(!is_power_good()) {
         sleep();
       }
+      
+      //--debojyoti--//
+#if CODE_TOGGLE
+    /*for (i = 0; i < 2; ++i)
+        if ((mainfns[i] == (mainfn)(*FIRMWARE_SWITCH))){
+		if(i==1)
+			WhichApp = 2;
+		else 
+			WhichApp = 1;
+	}
+  
+  if(WhichApp == 20)
+  {
+    erase_segment(FIRMWARE_SWITCH);
+    WriteWord(FIRMWARE_SWITCH,(unsigned int)&read_sensor_1);
+    WhichApp = 1;
+  }*/
+  //fn =(mainfn)(*FIRMWARE_SWITCH);
+#endif
 
 #if MONITOR_DEBUG_ON      
       // for monitor - set TAR OVERFLOW debug line - 00111 - 7
@@ -545,7 +630,15 @@ int main(void)
 #endif
           
           //DEBUG_PIN5_HIGH;
+#if CODE_TOGGLE
+          toggle_counter +=1;
+          if(toggle_counter == 20)
+            state=STATE_UPDATE;
+          else
+            handle_query(STATE_REPLY);
+#else
           handle_query(STATE_REPLY);
+#endif
           
 #if MONITOR_DEBUG_ON
           // for monitor - set STATE REPLY debug line - 00010 - 2
@@ -1161,7 +1254,13 @@ int main(void)
         state = STATE_READY;  
         delimiterNotFound = 1; // reset
 #elif SENSOR_DATA_IN_ID
-        read_sensor(&ackReply[3]);
+#if CODE_TOGGLE
+        //fn(&ackReply[3]);
+        fn();
+#else
+        //read_sensor(&ackReply[3]);
+        read_sensor();
+#endif
         RECEIVE_CLOCK;
         ackReplyCRC = crc16_ccitt(&ackReply[0], 14);
         ackReply[15] = (unsigned char)ackReplyCRC;
@@ -1172,6 +1271,21 @@ int main(void)
         
         break;
       } // end case  
+      
+    case STATE_UPDATE: //---debojyoti---updates the sensor firmware once 25 qury commands are issued
+      {
+#if CODE_TOGGLE
+        if (toggle_counter == 20)
+        {
+          erase_segment(FIRMWARE_SWITCH);
+          int result1=WriteWord(FIRMWARE_SWITCH, (unsigned int)&read_sensor_2);
+          fn = (void(*)()) (*FIRMWARE_SWITCH);
+          //fn=(mainfn)(*FIRMWARE_SWITCH);
+          WhichApp=2;
+        }
+        state=STATE_READY;
+#endif
+      }
     } // end switch
     
   } // while loop
@@ -2632,5 +2746,47 @@ int bitCompare(unsigned char *startingByte1, unsigned short startingBit1,
 	}
         
         return 1;
+}
+#endif
+#if CODE_TOGGLE  //Negin flashwrite code
+/*
+ * input: address of a block of flash memory
+ * output: -
+ * function: erases one block of memory (set all cells of a block to 1)
+ */
+void erase_segment(unsigned int *segment_address) {  
+  // set segment erase bit
+  FCTL1 = FWKEY + ERASE;
+  FCTL3 = FWKEY;
+
+  // perform dummy write to initiate erase
+  *(segment_address) = 0;
+
+  FCTL1 = FWKEY;
+  // set LOCK bit
+  FCTL3 = FWKEY + LOCK;
+  return;
+}
+
+/*
+ * input: address to one word of memory, one word value
+ * output: true (false) if the write is performed successfully (unsuccessfully)
+ * function: writes one word value to adress segment_address
+ */
+int WriteWord(unsigned int *segment_address, unsigned int value){
+  FCTL3 = 0x0A500; /* Loc/k = 0 */
+  FCTL1 = 0x0A540; /* WRT = 1 */
+  
+  //Repeat the writes REPEAT time to ensure the write works reliably despite the low voltage  
+  for (int i=0; i<REPEAT; i++)
+    *(segment_address) = value;
+  
+  FCTL1 = 0x0A500; /* WRT = 0 */
+  FCTL3 = 0x0A510; /* Lock = 1 */
+
+  //checking if the write has been successful...
+  if (*segment_address == value)
+    return 1;
+  return 0;
 }
 #endif
