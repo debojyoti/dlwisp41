@@ -146,6 +146,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #else
   #error "WISP Version not supported"
 #endif
+#include "eeprom_i2c.h"	
 
 #if SIMPLE_QUERY_ACK
 #define ENABLE_READS                  0
@@ -365,27 +366,32 @@ static inline void do_nothing();
 #if CODE_TOGGLE
 #define WORD 2
 #define BYTE 1
-#define REPEAT 40
-void erase_segment(unsigned int *segment_address);
-int WriteWord(unsigned int *segment_address, unsigned int value);
+#define REPEAT 60
+void erase_segment(unsigned int *segment_address); //Flash segment earse
+int WriteWord(unsigned int *segment_address, unsigned int value); //Write to Flash memory word
+//writes one byte value at segment_address
+int WriteByte(char *segment_address, char value);
+//-----thease functions are for eeprom read-write--
+// Note: The write_eeprom, read_eeprom, and delay_cycles code was contributed to the WISP wiki by M.B. Moessner.
+//extern void init_eeprom();
+//extern unsigned char write_eeprom(int address, unsigned char *data, int length);
+//extern unsigned char read_eeprom(int address, unsigned char *data, int length);
+//extern void delay_cycles(unsigned int num_of_cycles);
 
-#define _FIRMWARE_SWITCH_ADDRESS 0x10BE
+#define _FIRMWARE_SWITCH_ADDRESS 0x10BD
 static unsigned int* FIRMWARE_SWITCH =
     (unsigned int*)_FIRMWARE_SWITCH_ADDRESS;
-
+#define _FIRMWARE_VERSION_ADDRESS 0x1040
+static unsigned int* FIRMWARE_VERSION = 
+    (unsigned int*)_FIRMWARE_VERSION_ADDRESS; //keeps the version of firmware
 extern void read_sensor_1(); 
 //extern void read_sensor_2();
-/*unsigned char read_sensor_2 [] = { 0x0A,0x12,0x0A,0x4C,0xF2,0x40,0x82,0x00,0x57,0x00,0xF2,0x40,0x60,0x00,0x56,0x00,0xB0,0x12,0x0C,0x93,0x02,0x20,
-                                  0xB0,0x12,0xEC,0xE9,0xF2,0xC2,0x21,0x00,0x0F,0x43,0x0E,0x4A,0x0E,0x5F,0xFE,0x40,0x03,0x00,0x01,0x00,0x0A,0x5F,
-                                  0xEA,0x43,0x00,0x00,0x3A,0x41,0x30,0x41 };*/
-/*unsigned char read_sensor_2 [] = { 0x0A,0x12,0x0A,0x4C,0xF2,0x40,0x82,0x00,0x57,0x00,0xF2,0x40,0x60,0x00,0x56,0x00,
-                                  0xF2,0xC2,0x21,0x00,0x0F,0x43,0x0E,0x4A,0x0E,0x5F,0xFE,0x40,0x03,0x00,0x01,0x00,0x0A,0x5F,
-                                  0xEA,0x43,0x00,0x00,0x3A,0x41,0x30,0x41 };*/
-//unsigned char read_sensor_2 [] = {0xF2,0x40,0x82,0x00,0x57,0x00,0xF2,0x40,0x60,0x00,0x56,0x00,0xF2,0xC2,0x21,0x00,0x0F,0x43,0xFF,0x40,0x03,0x00,
-  //                                0x12,0x02,0xEF,0x43,0x11,0x02,0x30,0x41};
+
 unsigned char read_sensor_2 [] =  {0xF2,0x40,0x82,0x00,0x57,0x00,0xF2,0x40,0x60,0x00,0x56,0x00,0xF2,0xC2,0x21,0x00,0x0F,0x43, 
                                   0x1E,0x42,0x06,0x02,0x0E,0x5F,0xFE,0x40,0x03,0x00,0x04,0x00,0x1E,0x42,0x06,0x02,
-                                   0x0E,0x5F,0xEE,0x43,0x03,0x00,0x30,0x41};                         
+                                   0x0E,0x5F,0xEE,0x43,0x03,0x00,0x30,0x41};     
+#define NUM_BYTES 42 //length of object code --fixed for now. needs to be taken care of
+//unsigned char read_sensor_2[NUM_BYTES];
 //typedef void (*mainfn)(unsigned char volatile*);
 typedef void (*mainfn)();
 mainfn mainfns[2] = {
@@ -395,6 +401,8 @@ mainfn mainfns[2] = {
 int WhichApp=20;
 mainfn fn;
 int toggle_counter;
+static unsigned int CURR_VERSION;
+static unsigned int NEW_VERSION = 2;
 #endif
 int main(void)
 {
@@ -413,27 +421,28 @@ int main(void)
     //--debojyoti--//
 #if CODE_TOGGLE
     PointackReply = &ackReply[0];
-    for (i = 0; i < 1; ++i)
+  for (i = 0; i < 1; ++i){
       if ((mainfns[i] == (mainfn)(*FIRMWARE_SWITCH))){
         if(i==0)
           WhichApp=1;
-        else
-          WhichApp=2;
       }
-  
-		
-  if(WhichApp == 20)
-  {
-    erase_segment(FIRMWARE_SWITCH);
-    WriteWord(FIRMWARE_SWITCH,(unsigned int)&read_sensor_1);
-    WhichApp = 1;
   }
+    CURR_VERSION = *FIRMWARE_VERSION;
+    if(CURR_VERSION != 2)
+    {
+      if(WhichApp == 20)
+      {
+        erase_segment(FIRMWARE_SWITCH);
+        int result3=WriteWord(FIRMWARE_SWITCH,(unsigned int)&read_sensor_2);
+        WhichApp = 1;
+      }
+    }
+    
   // fn = (void(*)()) (*FIRMWARE_SWITCH);
   fn =(mainfn)(*FIRMWARE_SWITCH);
 #endif
   
   //---debojyoti---//
-  
   // Check power on bootup, decide to receive or sleep.
   if(!is_power_good())
     sleep();
@@ -1278,13 +1287,20 @@ int main(void)
         if (toggle_counter == 20)
         {
           erase_segment(FIRMWARE_SWITCH);
-          int result1=WriteWord(FIRMWARE_SWITCH, (unsigned int)&read_sensor_2);
-          fn = (void(*)()) (*FIRMWARE_SWITCH);
+          int result1=WriteWord(FIRMWARE_SWITCH, (unsigned int)&read_sensor_1);
+          //if(result1 ==1)
+          //{
+            erase_segment(FIRMWARE_VERSION);
+            int result2 = WriteWord(FIRMWARE_VERSION,NEW_VERSION);
+            fn = (void(*)()) (*FIRMWARE_SWITCH);
+             //VERSION_from_FLASH = *FIRMWARE_VERSION;
+          //}
           //fn=(mainfn)(*FIRMWARE_SWITCH);
-          WhichApp=2;
+          WhichApp=1;
         }
         state=STATE_READY;
 #endif
+        break;
       }
     } // end switch
     
@@ -2784,6 +2800,22 @@ int WriteWord(unsigned int *segment_address, unsigned int value){
   FCTL1 = 0x0A500; /* WRT = 0 */
   FCTL3 = 0x0A510; /* Lock = 1 */
 
+  //checking if the write has been successful...
+  if (*segment_address == value)
+    return 1;
+  return 0;
+}
+int WriteByte(char *segment_address, char value){
+  FCTL3 = 0x0A500; /* Lock = 0 */
+  FCTL1 = 0x0A540; /* WRT = 1 */
+  
+  //Repeat the writes REPEAT time to ensure the write works reliably despite the low voltage
+  for (int i=0; i<REPEAT; i++)
+    *(segment_address) = value;
+  
+  FCTL1 = 0x0A500; /* WRT = 0 */
+  FCTL3 = 0x0A510; /* Lock = 1 */
+  
   //checking if the write has been successful...
   if (*segment_address == value)
     return 1;
