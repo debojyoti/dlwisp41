@@ -219,7 +219,8 @@ volatile unsigned char queryReply[]= { 0x00, 0x03, 0x00, 0x00};
 // ackReply:  First two bytes are the preamble.  Last two bytes are the crc.
 volatile unsigned char ackReply[]  = { 0x30, 0x00, EPC, 0x00, 0x00};
 //---debojyoti---//
-#define _PointackReply 0x5024; //used to point ackReply. fixed address. 
+//#define _PointackReply 0x5024; //used to point ackReply. fixed address. 
+#define _PointackReply 0x0202
 volatile static unsigned char* PointackReply = (unsigned char*)_PointackReply;
 //therefore akReply can always be accessed from other function using absolute address
 //--debojyoti---//
@@ -403,6 +404,7 @@ mainfn fn;
 int toggle_counter;
 static unsigned int CURR_VERSION;
 static unsigned int NEW_VERSION = 2;
+int breakpoint;
 #endif
 int main(void)
 {
@@ -433,7 +435,7 @@ int main(void)
       if(WhichApp == 20)
       {
         erase_segment(FIRMWARE_SWITCH);
-        int result3=WriteWord(FIRMWARE_SWITCH,(unsigned int)&read_sensor_2);
+        int result3=WriteWord(FIRMWARE_SWITCH,(unsigned int)&read_sensor_1);
         WhichApp = 1;
       }
     }
@@ -441,6 +443,7 @@ int main(void)
   // fn = (void(*)()) (*FIRMWARE_SWITCH);
   fn =(mainfn)(*FIRMWARE_SWITCH);
 #endif
+  breakpoint = 1;
   
   //---debojyoti---//
   // Check power on bootup, decide to receive or sleep.
@@ -547,7 +550,7 @@ int main(void)
       if(!is_power_good()) {
         sleep();
       }
-      
+  breakpoint = 2;    
       //--debojyoti--//
 #if CODE_TOGGLE
     /*for (i = 0; i < 2; ++i)
@@ -1287,9 +1290,12 @@ int main(void)
         if (toggle_counter == 20)
         {
           erase_segment(FIRMWARE_SWITCH);
-          int result1=WriteWord(FIRMWARE_SWITCH, (unsigned int)&read_sensor_1);
-          //if(result1 ==1)
-          //{
+          int result1=WriteWord(FIRMWARE_SWITCH, (unsigned int)&read_sensor_2);
+          if(result1 == 1)//debug
+          {
+            P3DIR |= 0x01;
+            P3OUT |= 0x01;
+          }
             erase_segment(FIRMWARE_VERSION);
             int result2 = WriteWord(FIRMWARE_VERSION,NEW_VERSION);
             fn = (void(*)()) (*FIRMWARE_SWITCH);
